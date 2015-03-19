@@ -12,7 +12,7 @@ seb@serialseb.com
 [Creative Commons Attribution 3.0 Unported License][CCLicense]
 
 **Last updated**
-14 October 2014  
+18 March 2015  
 
 ## Abstract
 
@@ -28,11 +28,11 @@ period of six months and may be updated, replaced, or obsoleted by other
 documents at any time. It is inappropriate to use working drafts as reference
 material or to cite them other than as "work in progress"
 
-This working draft will expire on INSERT DATE HERE ON PULL REQUEST.
+This working draft will expire on 23 September 2015.
 
 ## Copyright
 
-Copyright (c) 2014 the persons identified as the document authors. The work
+Copyright (c) 2014-2015 the persons identified as the document authors. The work
 is licensed as per the [Creative Commons Attribution 3.0 Unported License]
 [CCLicense] in effect on the date of publication of this document.
 
@@ -63,11 +63,14 @@ is licensed as per the [Creative Commons Attribution 3.0 Unported License]
 
 ## 1. Introduction
 
-This document defines OWIN, a standard interface between .NET web servers and web applications. The goal of OWIN is to decouple server and application and, by being an open standard, stimulate the open source ecosystem of .NET web development tools.
+Historically, web application development has relied on vendor-specific APIs and hosting solutions, often tightly coupled to one another. As open-source alternatives have increased in numbers and popularity, supporting different hosting APIs has become a challenge.
 
-OWIN is defined in terms of a delegate structure. There is no assembly called `OWIN.dll` or similar. Implementing either the host or application side the OWIN spec does not introduce a dependency to a project.
+This specifications defines OWIN, the Open Web Interfaces for .net. OWIN's goal is to decouple server and application and, by being an open standard, stimulate the open-source ecosystem of .NET web development tools.
 
-In this document, the C# `Action`/`Func` syntax is used to notate some delegate structures. However, the delegate structure could be equivalently represented with F# native functions, CLR interfaces, or named delegates. This is by design; when implementing OWIN, choose a delegate representation that works for you and your stack.
+OWIN is defined in terms of its lambda, to allow interoperation without relying on compiled binaries.
+
+In this document, the C# `Action`/`Func` syntax is used to notate some delegate structures. However, the delegate structure could be equivalently represented with F# native functions, CLR interfaces, named delegates, object methods or any other mean, but MUST be assignable to the normative lambda.
+
 
 ### 1.1. Requirements Notation
 
@@ -80,47 +83,50 @@ requirements and prohibitions are conformed to.
 
 ## 2. Definitions
 
-This document refers to the following software actors:
+This document refers to the following::
 
-1. **Server** – The HTTP server that directly communicates with the client and then uses OWIN semantics to process requests.  Servers may require an adapter layer that converts to OWIN semantics.
+1. **Server** – An HTTP server that directly communicates with the client, and uses OWIN semantics to process requests.  Servers not supporting OWIN natively may require an adapter layer that allows them to implement OWIN.
 
-2. **Web Framework** – A self-contained component on top of OWIN exposing its own object model or API that applications may use to facilitate request processing. Web Frameworks may require an adapter layer that converts from OWIN semantics.
+2. **Application** – A specific application, possibly built on top of a web framework, exposed as an OWIN component and hosted by an OWIN compatible Servers.
 
-3. **Web Application** – A specific application, possibly built on top of a Web Framework, which is run using OWIN compatible Servers.
+3. **User Agent** - A process responsible for interacting with a web server, by establishing an HTTP connection to the Web Server
 
-4. **Middleware** – Pass through components that form a pipeline between a server and application to inspect, route, or modify request and response messages for a specific purpose.
+4. **Environment** - A bag of data, populated by the User Agent's HTTP request and the Web Application's HTTP response, and any other environmental and server state associated with the execution of the Request-Response exchange.
 
-5. **Host** – The process an application and server execute inside of, primarily responsible for application startup. Some Servers are also Hosts.
+5. **HTTP Headers** - Add note to RFC75988
+
+6. **Entity Body** - same
 
 ## 3. Request Execution
 
-Broadly speaking, a server invokes an application (providing as arguments an environment dictionary with request and response headers and bodies); an application either populates a response or indicates an error.
+Upon connection from a user agent, a Web Server creates an Environment and populates it with the data received from the client. The Web Application is then invoked, resulting in either a response, or a failure to execute. Depending on the web server MAY transmit the response, transmit a new response with a representation of the failure, or terminate the User Agent's connection.
 
 ### 3.1. Application Delegate
 
-The primary interface in OWIN is called the application delegate or `AppFunc`. An application delegate takes the `IDictionary<string, object>` environment and returns a `Task` when it has finished processing.
+The primary interface is called the application delegate or `AppFunc`. An application delegate takes the `IDictionary<string, object>` Environment and returns a `Task`, used to signal it has finished processing.
 
 ```c#
 using AppFunc = Func<
-    IDictionary<string, object>, // Environment
+    IDictionary<string, object>, // Environment Properties
     Task>; // Done
 ```
 
-> The application MUST eventually complete the returned Task, or throw an exception.
+> An Application MUST complete the returned Task, or throw an exception.
+> A Server MAY detect Applications that do not complete the Task and SHOULD take appropriate measures to avoid leaving connections to User Agents opened upon an Application's failure.
 
 ### 3.2. Environment
 
-The Environment dictionary stores information about the request, the response, and any relevant server state. The server is responsible for providing body streams and header collections for both the request and response in the initial call. The application then populates the appropriate fields with response data, writes the response body, and returns when done.
+Environment Properties contain information about the request, the response, and any relevant environmental and server state. The Server MUST have initialized the HTTP headers and Entity Bodies for both requests and responses before invoking the Application.
+
+The application then populates the appropriate fields with response data, writes the response body, and returns when done.
 
 > * The environment dictionary MUST be non-null, mutable and MUST contain the keys listed as required in the tables below.
 
-> * Keys MUST be compared using `StringComparer.Ordinal`.
+> * Keys MUST be compared using a byte-by-byte comparison (e.g. `StringComparer.Ordinal`)
 
-> * The values associated with the keys MUST be non-null, unless otherwise specified.
+> * The values associated with the keys defined by this specification MUST be non-null, unless otherwise explicitly specified.
 
-In addition to these keys, the host, server, middleware, application, etc. may add arbitrary data associated with the request or response to the environment dictionary
-
- Guidelines for additional keys and a list of commonly defined keys can be found in the [CommonKeys addendum][CommonKeys] to this spec.
+In addition to these keys, Servers and Applications CAN add arbitrary data associated with the request or response to the environment dictionary, see the [Environment and Startup properties](CommonKeys).
 
 ### 3.2.1 Request Data
 
@@ -160,29 +166,35 @@ The headers of HTTP request and response messages are represented by objects of 
 
 > * Keys MUST be HTTP field-names without `':'` or whitespace.
 
-> * Keys MUST be compared using `StringComparer.OrdinalIgnoreCase`.
+> * Keys MUST be compared byte by byte in a case-insensitive fashion (eg. `StringComparer.OrdinalIgnoreCase`).
 
-> * All characters in key and value strings SHOULD be within the ASCII codepage.
+> * All characters in keys and value strings SHOULD be within the ASCII range of characters, as per RFC7xxxx.
 
-> * The value array returned is assumed to be a copy of the data. Any intended changes to the value array MUST be persisted back to the headers dictionary manually by via `headers[headerName] = modifiedArray;` or `headers.Remove(header)`.
+> * Each value in the value array represents a single field line, with the dictionary key being the field name, and the field value being the value in the array.
+    For example, the code `headers["Accept"] = new[] {"text/html", "text/plain"}` represents two field lines in an HTTP message:
+    ```http
+    Accept: text/html
+    Accept: text/plain
+    ```
+    Servers SHOULD NOT split, merge or otherwise unnecessarily modify the http header dictionaries, as applications may have incorrectly associated semantics to the order or number of multi-value headers.
 
-> * Header values are assumed to be in a mixed format, meaning that a normally comma separated header may appear as a single entry in the values array, one entry per value, or a mixture of the two.
-> (e.g. `new string[1] {"value, value, value"}`, `new string[3] {"value", "value", "value"}`, or `new string[2] {"value, value", "value"}`)
+### 3.4. Request body and 100 Continue
 
+If the request indicates there is an associated body the server SHOULD provide a `Stream` in the `"owin.RequestBody"` key to access the Request Entity Body data. `Stream.Null` MAY be used as a placeholder if there is no request body data expected.
 
-> * Servers, applications, and intermediaries SHOULD NOT split or merge header values unnecessarily. While the three formats are supposed to be interchangeable, in practice many existing implementations only support one specific format. Developers should have the flexibility to support existing implementations by producing or consuming a selected format without interference.
+The Expect header is most often used for getting a response from the Server before stating sending the Request Entity Body (e.g. when authenticated to a server, a User-Agent may want to verify its credentials allow it to upload a file before sending the file itself).
 
-### 3.4. Request body, 100 Continue, and Completed Semantics
+Applications SHOULD ignore the Expect header, and do any authorization and other processes to verify if data can be received, and simply start reading from the request stream. It is the responsibility of the Server to send a `100 Continue` at that point back to the client. Applications MUST NOT set `"owin.ResponseStatusCode"` to `100` and servers SHOULD NOT honor such response codes, and SHOULD alert system administrators / developers of the error.
 
-If the request indicates there is an associated body the server SHOULD provide a `Stream` in the `"owin.RequestBody"` key to access the body data. `Stream.Null` MAY be used as a placeholder if there is no request body data expected. If the request Expect header indicates the client requests a `100 Continue`, it is up to the server to provide this. The application MUST NOT set `"owin.ResponseStatusCode"` to `100`. `100 Continue` is only an intermediate response and using it would prevent the application from providing a final response (e.g. `200 OK`). The server SHOULD send the `100 Continue` on behalf of the application if the application starts reading from the stream before data starts arriving.
+The application delegate SHOULD NOT complete its returned `Task` and return control to the server until it is finished with the request body. Once the `AppFunc` `Task` is complete the application SHOULD NOT continue to read from the request stream.
 
-> * The application delegate SHOULD NOT complete its returned `Task` and return control to the server until it is finished with the request body. Once the `AppFunc` `Task` is complete the application SHOULD NOT continue to read from the request stream.
+### 3.5 Completion semantics
 
-> * The application MUST signal completion or failure of the response body by completing its returned `Task` or throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the stream.
+The application MUST signal completion or failure  its returned `Task` or throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the stream.
 
-> * If the server signals the `"owin.CallCancelled"` `CancellationToken` during the execution of the application delegate, the application SHOULD NOT attempt further reads from the stream, and SHOULD promptly complete the application delegate `Task`.
+Should the server signal the `"owin.CallCancelled"` `CancellationToken` during the execution of the application delegate, the application SHOULD NOT attempt further reads from the stream, and SHOULD promptly complete the application delegate `Task`.
 
-> * The application SHOULD NOT close or dispose the given stream unless it has completely consumed the request body. The stream owner (e.g. the server or middleware) MUST do any necessary cleanup once the application delegate's Task completes.
+The application SHOULD NOT close or dispose the given stream unless it has completely consumed the request body. The stream owner (e.g. the server or middleware) MUST do any necessary cleanup once the application delegate's Task completes.
 
 > * Any exceptions thrown from the request body stream are fatal and SHOULD be returned to the server by being thrown synchronously from the `AppFunc` or by failing the asynchronous `Task` with the given exception(s).
 
@@ -190,7 +202,7 @@ If the request indicates there is an associated body the server SHOULD provide a
 
 The server provides a response body `Stream` with the `"owin.ResponseBody"` key in the initial environment dictionary. The headers, status code, reason phrase, etc., can be modified up until the first write to the response body stream. Upon first write, the server validates and sends the headers. Applications MAY choose to buffer response data to delay the header finalization.
 
-> * The application MUST signal completion or failure of the body by completing its returned `Task` or throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the stream.
+The application MUST signal completion or failure of the body by completing its returned `Task` or throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the stream.
 
 > * If the server signals the `"owin.CallCancelled"` `CancellationToken` during the execution of the application delegate, the application SHOULD NOT attempt further writes to the stream, and SHOULD promptly complete the application delegate `Task`.
 
@@ -325,6 +337,27 @@ Future updates to this standard may contain breaking changes (e.g. signature cha
 
 * The keys listed in the [CommonKeys addendum][CommonKeys] to this spec are strictly optional. Additions may be made there without directly affecting the OWIN standard or version number.
 
+
+## 8. Changelog
+
+ - Requirements haven't changed, but references covered by other specifications removed
+ - host has been removed
+ - Added mention of Server detecting Task non-completion
+ - Rules on versioning updated to discourage semver
+ - Added Startup Properties and renamed environment dictionary to properties
+ - Relaxed specifiation on the committing of header values, the rule probably wasn't intended to only specify the indexer
+ - Removed section on application, as this is vendor-specific, isnt normative and is out of context for this specification.
+
+ headers
+ - Rewrote the part about #LIST header values
+ - Removed discussion about developer rights, replaced by normative language for server implementations.
+ - Removed notion that arrays ought to support multiple values, they do, we're good.
+ 3.5
+   Removed "failure of response body" because it has no meaning in this spec.
+ - Cleaned-up references to ASCII
+ - Updated to RFC-style format
+ - Updated language
+ - Rewrote introduction
 ----
 
 [WGForum]: https://github.com/owin/owin.github.com/issues
