@@ -18,7 +18,6 @@ seb@serialseb.com
 
 This document defines OWIN, a standard interface between .NET web servers and web applications.
 
-
 ## Status
 
 This is a working draft.
@@ -89,13 +88,17 @@ This document refers to the following::
 
 2. **Application** – A specific application, possibly built on top of a web framework, exposed as an OWIN component and hosted by an OWIN compatible Servers.
 
+> Note: need to add Client and Server as per RFC 7230
+
 3. **User Agent** - A process responsible for interacting with a web server, by establishing an HTTP connection to the Web Server
 
 4. **Environment** - A bag of data, populated by the User Agent's HTTP request and the Web Application's HTTP response, and any other environmental and server state associated with the execution of the Request-Response exchange.
 
-5. **HTTP Headers** - Add note to RFC75988
+5. **HTTP Headers** - Add note to RFC 7230
 
-6. **Entity Body** - same
+6. **Request/Response Entity Body** - same
+
+7. Interaction - A process starting with an HTTP Request and completing with an HTTP response or the termination of the Client's connection.
 
 ## 3. Request Execution
 
@@ -170,7 +173,7 @@ The headers of HTTP request and response messages are represented by objects of 
 
 > * All characters in keys and value strings SHOULD be within the ASCII range of characters, as per RFC7xxxx.
 
-> * Each value in the value array represents a single field line, with the dictionary key being the field name, and the field value being the value in the array.
+> * Each value in the value array represents a single field line in the origin HTTP message, with the dictionary key being the field name.
     For example, the code `headers["Accept"] = new[] {"text/html", "text/plain"}` represents two field lines in an HTTP message:
     ```http
     Accept: text/html
@@ -182,37 +185,46 @@ The headers of HTTP request and response messages are represented by objects of 
 
 If the request indicates there is an associated body the server SHOULD provide a `Stream` in the `"owin.RequestBody"` key to access the Request Entity Body data. `Stream.Null` MAY be used as a placeholder if there is no request body data expected.
 
-The Expect header is most often used for getting a response from the Server before stating sending the Request Entity Body (e.g. when authenticated to a server, a User-Agent may want to verify its credentials allow it to upload a file before sending the file itself).
+The Expect header is often used for getting an early response from the Server before stating sending the Request Entity Body (e.g. when authenticated to a server, a User-Agent may want to verify its credentials allow it to upload a file before sending the file itself).
 
-Applications SHOULD ignore the Expect header, and do any authorization and other processes to verify if data can be received, and simply start reading from the request stream. It is the responsibility of the Server to send a `100 Continue` at that point back to the client. Applications MUST NOT set `"owin.ResponseStatusCode"` to `100` and servers SHOULD NOT honor such response codes, and SHOULD alert system administrators / developers of the error.
+Applications SHOULD ignore the Expect header, and do any authorization or other processes as if the header was not present. The Server SHOULD send a `100 Continue` at the point the application starts reading the request stream. Applications MUST NOT set `"owin.ResponseStatusCode"` to `100` and servers SHOULD NOT honor such response codes should an application not implement this specification correctly, and SHOULD alert system administrators / developers of the error.
 
-The application delegate SHOULD NOT complete its returned `Task` and return control to the server until it is finished with the request body. Once the `AppFunc` `Task` is complete the application SHOULD NOT continue to read from the request stream.
+An Application that reads the Request Entity Body SHOULD NOT complete its returned `Task` and return control to the server until it is finished reading the body. Once the `AppFunc` `Task` is complete the application SHOULD NOT continue to read from the request stream.
+
+ > NOTE: What does a server do in the face of a partial read by the app, I expect the server ought to finish reading the request entity body before writing a response, or kill the connection. See https://tools.ietf.org/html/rfc7230#section-6.5, we should describe how this maps to Servers behavior.
 
 ### 3.5 Completion semantics
 
-The application MUST signal completion or failure  its returned `Task` or throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the stream.
+The application MUST signal completion through its returned `Task`, or by throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the Response stream.
 
-Should the server signal the `"owin.CallCancelled"` `CancellationToken` during the execution of the application delegate, the application SHOULD NOT attempt further reads from the stream, and SHOULD promptly complete the application delegate `Task`.
+Should the server signal the `"owin.CallCancelled"` `CancellationToken` during the execution of the application delegate, the application SHOULD NOT attempt further reads from the stream, and SHOULD promptly complete the Application's `Task`.
 
-The application SHOULD NOT close or dispose the given stream unless it has completely consumed the request body. The stream owner (e.g. the server or middleware) MUST do any necessary cleanup once the application delegate's Task completes.
+The application SHOULD NOT close or dispose the Request Entity Body stream unless it has completely consumed the request body. The owner of a Request Stream MUST do any necessary cleanup once the application delegate's Task completes.
 
-> * Any exceptions thrown from the request body stream are fatal and SHOULD be returned to the server by being thrown synchronously from the `AppFunc` or by failing the asynchronous `Task` with the given exception(s).
+> * Any exception thrown from the request body stream is fatal and SHOULD be returned to the server by being thrown synchronously from the `AppFunc` or by failing the Application `Task` with the given exception(s).
 
 ### 3.5. Response Body
 
-The server provides a response body `Stream` with the `"owin.ResponseBody"` key in the initial environment dictionary. The headers, status code, reason phrase, etc., can be modified up until the first write to the response body stream. Upon first write, the server validates and sends the headers. Applications MAY choose to buffer response data to delay the header finalization.
+The server provides a response body `Stream` with the `"owin.ResponseBody"` key in the initial environment dictionary. The Response Message, including headers, status code and reason phrase, can be modified up until the first write to the Response Entity Body. Upon the first write, the Server MUST send the headers as they exist at that point in time. Applications MAY choose to buffer response data to delay the header finalization.
 
 The application MUST signal completion or failure of the body by completing its returned `Task` or throwing an exception. After completing the `Task`, the application SHOULD NOT write any further data to the stream.
 
-> * If the server signals the `"owin.CallCancelled"` `CancellationToken` during the execution of the application delegate, the application SHOULD NOT attempt further writes to the stream, and SHOULD promptly complete the application delegate `Task`.
+> * If the Server signals the `"owin.CallCancelled"` `CancellationToken` during the execution of the Application, the Application SHOULD NOT attempt further writes to the Response Entity Body, and SHOULD complete the application delegate `Task`.
 
-> * The application SHOULD NOT close or dispose the given stream as middleware may append additional data. The stream owner (e.g. the server or middleware) MUST perform any necessary cleanup once the application delegate's `Task` completes.
+> * The application SHOULD NOT close or dispose the Response Entity Body stream, as other components may append additional data. The stream owner MUST perform any necessary cleanup once the application delegate's `Task` completes.
 
-An application SHOULD NOT assume the given stream supports multiple outstanding asynchronous writes. The application developer SHOULD verify that the server and all middleware in use support this pattern before attempting to use it.
+> QUESTION: this cannot possibly be normative? An application developer could not possibly do that, neither does "supporting multiple outstanding asynchronous writes" mean much, as there is no reference. I suggest removing the clause alltogether, or being more normative in what this means and what "verify xxx support this pattern" actually mean.
 
-### 3.6. Request lifetime
+(An application SHOULD NOT assume the given stream supports multiple outstanding asynchronous writes. The application developer SHOULD verify that the server and all middleware in use support this pattern before attempting to use it.)
 
-The full scope or lifetime of a request is limited by the several factors, including the client, server, and application delegate. In the simplest scenario a request's lifetime ends when the application delegate has completed and the server gracefully ends the request. Failures at any level may cause the request to terminate prematurely, or may be handled internally and allow the request to continue.
+### 3.6. Interaction lifetime
+
+The lifetime of an Interaction is dependent on the Application, the Client and the Server.
+
+In the common scenario, a request's lifetime ends when the Application has completed and the Server gracefully ends the request. Failures at any level may cause the request to terminate prematurely, or may be handled internally, allowing the request to continue.
+
+> QUESTION: "ends the request" is awfully sounding like "terminate the request", and I'm pretty sure thats not what was meant.
+> QUESTION: "allowing the request to continue?" and "any level" is imprecise and i don't understand what it's trying to say.
 
 The `"owin.CallCancelled"` key is associated with a `CancellationToken` that the server uses to signal if the request has been aborted. This SHOULD be triggered if the request becomes faulted before the `AppFunc` `Task` is completed. It MAY be triggered at any point at the providers discretion. Middleware MAY replace this token with their own to provide added granularity or functionality, but they SHOULD chain their new token with the one originally provided to them.
 
@@ -345,7 +357,7 @@ Future updates to this standard may contain breaking changes (e.g. signature cha
  - Added mention of Server detecting Task non-completion
  - Rules on versioning updated to discourage semver
  - Added Startup Properties and renamed environment dictionary to properties
- - Relaxed specifiation on the committing of header values, the rule probably wasn't intended to only specify the indexer
+ - Relaxed specification on the committing of header values, the rule probably wasn't intended to only specify the indexer
  - Removed section on application, as this is vendor-specific, isnt normative and is out of context for this specification.
 
  headers
