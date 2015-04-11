@@ -98,7 +98,7 @@ This document refers to the following::
 
 6. **Request/Response Entity Body** - same
 
-7. Interaction - A process starting with an HTTP Request and completing with an HTTP response or the termination of the Client's connection.
+7. Interaction - A process starting with an HTTP Request and completing with an HTTP response or the termination of the User Agent's connection.
 
 ## 3. Request Execution
 
@@ -217,16 +217,19 @@ The application MUST signal completion or failure of the body by completing its 
 
 (An application SHOULD NOT assume the given stream supports multiple outstanding asynchronous writes. The application developer SHOULD verify that the server and all middleware in use support this pattern before attempting to use it.)
 
-### 3.6. Interaction lifetime
+### 3.6. Interaction lifetime and request cancellation
 
 The lifetime of an Interaction is dependent on the Application, the Client and the Server.
 
-In the common scenario, a request's lifetime ends when the Application has completed and the Server gracefully ends the request. Failures at any level may cause the request to terminate prematurely, or may be handled internally, allowing the request to continue.
+In the common scenario, a request's lifetime ends when the Application has completed and the Server has fulfilled the Request. Failures at any level may cause the Request to terminate prematurely, or may be handled internally, allowing the request to continue.
 
-> QUESTION: "ends the request" is awfully sounding like "terminate the request", and I'm pretty sure thats not what was meant.
+> NOTE: "ends the request" is awfully sounding like "terminate the request", and I'm pretty sure thats not what was meant. I've updated to fulfilled
+
 > QUESTION: "allowing the request to continue?" and "any level" is imprecise and i don't understand what it's trying to say.
 
-The `"owin.CallCancelled"` key is associated with a `CancellationToken` that the server uses to signal if the request has been aborted. This SHOULD be triggered if the request becomes faulted before the `AppFunc` `Task` is completed. It MAY be triggered at any point at the providers discretion. Middleware MAY replace this token with their own to provide added granularity or functionality, but they SHOULD chain their new token with the one originally provided to them.
+The `"owin.CallCancelled"` key is associated with a `CancellationToken` used to signal the premature termination of a Request. This SHOULD be triggered if the request fails before the Application's `Task` is completed. Any component MAY replace this token with their own to provide added granularity or functionality, but they SHOULD chain their new token with the one originally provided to them.
+
+> NOTE: Removed mention of providers, which is undefined in this spec.
 
 ## 4. Application Startup
 
