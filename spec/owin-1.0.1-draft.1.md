@@ -117,11 +117,11 @@ using AppFunc = Func<
 > An Application MUST complete the returned Task, or throw an exception.
 > A Server MAY detect Applications that do not complete the Task and SHOULD take appropriate measures to avoid leaving connections to User Agents opened upon an Application's failure.
 
-### 3.2. Environment
+### 3.2. Environment Properties
 
 Environment Properties contain information about the request, the response, and any relevant environmental and server state. The Server MUST have initialized the HTTP headers and Entity Bodies for both requests and responses before invoking the Application.
 
-The application then populates the appropriate fields with response data, writes the response body, and returns when done.
+The Application then populates the appropriate fields with response data, writes the response body, and returns when done.
 
 > * The environment dictionary MUST be non-null, mutable and MUST contain the keys listed as required in the tables below.
 
@@ -131,7 +131,7 @@ The application then populates the appropriate fields with response data, writes
 
 In addition to these keys, Servers and Applications CAN add arbitrary data associated with the request or response to the environment dictionary, see the [Environment and Startup properties](CommonKeys).
 
-### 3.2.1 Request Data
+### 3.2.1 Request Keys
 
 | Required | Key Name                  | Value Description |
 |----------|---------------------------|-------------------|
@@ -143,8 +143,9 @@ In addition to these keys, Servers and Applications CAN add arbitrary data assoc
 | **Yes**  | `owin.RequestProtocol`    | A `string` containing the protocol name and version (e.g. `"HTTP/1.0"` or `"HTTP/1.1"`). |
 | **Yes**  | `owin.RequestQueryString` | A `string` containing the query string component of the HTTP request URI, without the leading "?" (e.g., `"foo=bar&amp;baz=quux"`). The value may be an empty string. |
 | **Yes**  | `owin.RequestScheme`      | A `string` containing the URI scheme used for the request (e.g., `"http"`, `"https"`); see [URI Scheme][sec-uri-scheme]. |
+| **Yes**  | `owin.CallCancelled`      | A `CancellationToken` indicating if the request has been canceled/aborted. See [Request Lifetime][sec-req-lifetime]. |
 
-### 3.2.2 Response Data
+### 3.2.2 Response Keys
 
 | Required | Key Name                  | Value Description |
 |----------|---------------------------|-------------------|
@@ -154,12 +155,13 @@ In addition to these keys, Servers and Applications CAN add arbitrary data assoc
 | **No**  | `owin.ResponseReasonPhrase`| An optional `string` containing the reason phrase associated the given status code. If none is provided then the server SHOULD provide a default as described in [RFC 2616][rfc2616] section 6.1.1 |
 | **No**  | `owin.ResponseProtocol`    | An optional `string` containing the protocol name and version (e.g. `"HTTP/1.0"` or `"HTTP/1.1"`). If none is provided then the `"owin.RequestProtocol"` key's value is the default. |
 
-### 3.2.3 Other Data
+### 3.2.3 Environmental Keys
 
 | Required | Key Name                  | Value Description |
 |----------|---------------------------|-------------------|
-| **Yes**  | `owin.CallCancelled`      | A `CancellationToken` indicating if the request has been canceled/aborted. See [Request Lifetime][sec-req-lifetime]. |
+
 | **Yes**  | `owin.Version`            | A `string` indicating the OWIN version. See [Versioning][sec-versioning]. |
+
 
 ### 3.3. Headers
 
@@ -231,7 +233,7 @@ The `"owin.CallCancelled"` key is associated with a `CancellationToken` used to 
 
 > NOTE: Removed mention of providers, which is undefined in this spec.
 
-## 4. Application Startup
+## 4. Startup P
 
 When the host process starts there are a number of steps it goes through to set up the application.
 
