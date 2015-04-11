@@ -102,7 +102,7 @@ This document refers to the following::
 
 ## 3. Request Execution
 
-Upon connection from a user agent, a Web Server creates an Environment and populates it with the data received from the client. The Web Application is then invoked, resulting in either a response, or a failure to execute. Depending on the web server MAY transmit the response, transmit a new response with a representation of the failure, or terminate the User Agent's connection.
+Upon connection from a User Agent, a Server creates the Environment Properties and populates them with the data received from the client. The Application is then invoked, resulting in either a response or a failure to execute. Depending on the result of executing the Application, the Server MAY transmit the response, transmit a new response with a representation of the failure, or terminate the User Agent's connection.
 
 ### 3.1. Application Delegate
 
@@ -119,9 +119,11 @@ using AppFunc = Func<
 
 ### 3.2. Environment Properties
 
-Environment Properties contain information about the request, the response, and any relevant environmental and server state. The Server MUST have initialized the HTTP headers and Entity Bodies for both requests and responses before invoking the Application.
+Environment Properties contain OWIN properties about the Request, the Response, the Protocol, the Server and the Interaction.
 
-The Application then populates the appropriate fields with response data, writes the response body, and returns when done.
+The Server MUST have initialized the HTTP headers and Entity Bodies for both requests and responses before invoking the Application.
+
+The Application then populates the appropriate fields with response data, writes the response body, and completes by signaling it's `Task`.
 
 > * The environment dictionary MUST be non-null, mutable and MUST contain the keys listed as required in the tables below.
 
@@ -129,9 +131,41 @@ The Application then populates the appropriate fields with response data, writes
 
 > * The values associated with the keys defined by this specification MUST be non-null, unless otherwise explicitly specified.
 
-In addition to these keys, Servers and Applications CAN add arbitrary data associated with the request or response to the environment dictionary, see the [Environment and Startup properties](CommonKeys).
+In addition to these keys, Servers and Applications CAN add arbitrary data associated with the request or response to the Environment Properties.
 
-### 3.2.1 Request Keys
+### 3.2.1 Key names
+
+Keys MUST be in the form `prefix.Descriptor`, where prefix MUST be a series of lowercase ASCII characters, and descriptor SHOULD be a series of ASCII ALPHA, DIGIT and the period character `.`, using Pascal casing.
+
+The prefix defines the tree (or namespace) in which a key exists. This specification defines three trees, `owin`, `server` and `host`.
+
+Components that wish to add keys specific to their product SHOULD do so using a vendor prefix following the rules defined above.
+
+Components that wish to add keys for a generic technology SHOULD do so using a prefix describing the technology for which the property exist.
+
+#### 3.2.1.1 owin
+
+This specification reserves the `owin` tree for specifications standardized by the OWIN working group according to the group's governance.
+
+For ensuring compatibility of the OWIN protocol, future keys defined in additional specifications in the owin tree MUST be optional for the OWIN 1.0 protocol (see versioning).
+
+#### 3.2.1.2 server
+
+This specification reserves the `server` tree for keys related to server-provided information, and creates a registry at http://owin.org/server/ that defines all existing keys.
+
+New keys may be added to the `server` tree by registering them in the registry, following the rules of this specification and the template provided on the server key wiki.
+
+> NOTE: Need to create something at /server/ and a template for registration, moving CommonKeys over
+
+#### 3.2.1.3 ssl
+
+This specification defines the `ssl` tree for keys related to secure connectivity data. The term `ssl` is defined for backward-compatibility reason, and not meant as a technology choice. Any further evolutions of TLS should get associated keys defined in the ssl tree.
+
+#### 3.2.1.4 host
+
+This specification defines the `host` tree for backward-compatibility reason. New keys MUST NOT be registered in the host tree, and existing keys in the host tree SHOULD be made available in the server tree as well.
+
+### 3.2.2 Request Keys
 
 | Required | Key Name                  | Value Description |
 |----------|---------------------------|-------------------|
@@ -143,7 +177,7 @@ In addition to these keys, Servers and Applications CAN add arbitrary data assoc
 | **Yes**  | `owin.RequestProtocol`    | A `string` containing the protocol name and version (e.g. `"HTTP/1.0"` or `"HTTP/1.1"`). |
 | **Yes**  | `owin.RequestQueryString` | A `string` containing the query string component of the HTTP request URI, without the leading "?" (e.g., `"foo=bar&amp;baz=quux"`). The value may be an empty string. |
 | **Yes**  | `owin.RequestScheme`      | A `string` containing the URI scheme used for the request (e.g., `"http"`, `"https"`); see [URI Scheme][sec-uri-scheme]. |
-| **Yes**  | `owin.CallCancelled`      | A `CancellationToken` indicating if the request has been canceled/aborted. See [Request Lifetime][sec-req-lifetime]. |
+| **Yes**  | `owin.CallCancelled`      | A `CancellationToken` indicating, when signaled, that the request has been canceled/aborted. See [Request Lifetime][sec-req-lifetime]. |
 
 ### 3.2.2 Response Keys
 
@@ -155,12 +189,33 @@ In addition to these keys, Servers and Applications CAN add arbitrary data assoc
 | **No**  | `owin.ResponseReasonPhrase`| An optional `string` containing the reason phrase associated the given status code. If none is provided then the server SHOULD provide a default as described in [RFC 2616][rfc2616] section 6.1.1 |
 | **No**  | `owin.ResponseProtocol`    | An optional `string` containing the protocol name and version (e.g. `"HTTP/1.0"` or `"HTTP/1.1"`). If none is provided then the `"owin.RequestProtocol"` key's value is the default. |
 
-### 3.2.3 Environmental Keys
+### 3.2.3 Protocol Keys
 
 | Required | Key Name                  | Value Description |
 |----------|---------------------------|-------------------|
 
-| **Yes**  | `owin.Version`            | A `string` indicating the OWIN version. See [Versioning][sec-versioning]. |
+| **Yes**  | `owin.Version`            | A `string` indicating the OWIN version supported by the Server. See [Versioning][sec-versioning]. |
+
+### 3.2.4 Server Keys
+
+Note that all server keys as defined are optional.
+
+| Key Name                  | Value Type | Value Description |
+|---------------------------|------------|-------------------|
+| `server.OnSendingHeaders` | `Action<Action<object>, object>`| Allows the caller to register an Action callback that fires as a last chance to modify response headers, status code, reason phrase, or protocol. The object parameter is an optional state object that will passed to the callback. |
+| `server.RemoteIpAddress`  | `String`   | The IP Address of the remote client. E.g. 192.168.1.1 or ::1 |
+| `server.RemotePort`       | `String`   | The port of the remote client. E.g. 1234 |
+| `server.LocalIpAddress`   | `String`   | The local IP Address the request was received on. E.g. 127.0.0.1 or ::1 |
+| `server.LocalPort`        | `String`   | The port the request was received on. E.g. 80 |
+| `server.IsLocal`          | `String`   | Was the request sent from the same machine? E.g. true or false. |
+
+#### 3.2.5 SSL keys
+
+
+| Key Name                  | Value Type | Value Description |
+|---------------------------|------------|-------------------|
+| `ssl.ClientCertificate`   | `X509Certificate`| The client certificate provided during HTTPS SSL negotiation. |
+
 
 
 ### 3.3. Headers
